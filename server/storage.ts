@@ -1,38 +1,43 @@
-import { type User, type InsertUser } from "@shared/schema";
-import { randomUUID } from "crypto";
-
-// modify the interface with any CRUD methods
-// you might need
+import { db } from "./db";
+import { users, results, type User, type InsertUser, type Result, type InsertResult } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  createOrUpdateUser(user: InsertUser): Promise<User>;
+  getResultsByUserId(userId: string): Promise<Result[]>;
+  createResult(result: InsertResult): Promise<Result>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-
-  constructor() {
-    this.users = new Map();
-  }
-
+export class DatabaseStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
-  }
-
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
-  }
-
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
   }
+
+  async createOrUpdateUser(insertUser: InsertUser): Promise<User> {
+    // Check if user exists
+    const [existing] = await db.select().from(users).where(eq(users.id, insertUser.id!));
+    if (existing) {
+      const [updated] = await db.update(users)
+        .set(insertUser)
+        .where(eq(users.id, insertUser.id!))
+        .returning();
+      return updated;
+    }
+    
+    const [user] = await db.insert(users).values(insertUser).returning();
+    return user;
+  }
+
+  async getResultsByUserId(userId: string): Promise<Result[]> {
+    return await db.select().from(results).where(eq(results.userId, userId));
+  }
+
+  async createResult(insertResult: InsertResult): Promise<Result> {
+    const [result] = await db.insert(results).values(insertResult).returning();
+    return result;
+  }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
